@@ -1,0 +1,50 @@
+[
+  {
+    "text": "こんにちは。",
+    "phonemes": "koɲɲiʨiβa."
+  },
+  {
+    "text": "こんにちは、世界。",
+    "phonemes": "koɲɲiʨiβa, sekai."
+  },
+  {
+    "text": "東京都に住んでいます。",
+    "phonemes": "toːkʲoːto ɲi sɨnde imasɨ."
+  },
+  {
+    "text": "2026年のテストです。",
+    "phonemes": "ɲi seɴ ɲiʥɨːɾokɯ neɴ no tesɨto desɨ."
+  },
+  {
+    "text": "このプロジェクト（古いアイデア）はうまくいった。",
+    "phonemes": "kono pɯɾoʥekɯto «ɸɯɾɯi aidea» βa ɯmakɯ iʔta."
+  },
+  {
+    "text": "「おはよう」と彼女は言った。",
+    "phonemes": "“ohajoː” to kanoʥo βa iʔta."
+  },
+  {
+    "text": "私は3.5キロのりんごを買いました。",
+    "phonemes": "βatakɯɕi βa saɴ. ɡo kʲiɾo no ɾʲiŋɡo o kai maɕita."
+  },
+  {
+    "text": "カタカナ、ひらがな、漢字。",
+    "phonemes": "katakana, çiɾaɡana, kaɲʥi."
+  },
+  {
+    "text": "彼はまっすぐ歩いて行った。",
+    "phonemes": "kaɾe βa maʔsɨɡɯ aɾɯite iʔta."
+  },
+  {
+    "text": "そうですね……難しいです。",
+    "phonemes": "soː desɨ ne...... mɯzɨkaɕiː desɨ."
+  },
+  {
+    "text": "コンピューターが動きません。",
+    "phonemes": "kompʲɨːtaː ɡa ɯɡokʲi maseɴ."
+  },
+  {
+    "text": "一二三四五六七八九十。",
+    "phonemes": "iʨi ɲi saɴ joɴ ɡo ɾokɯ nana haʨi kʲɨːʥɨː."
+  }
+]

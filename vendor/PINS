@@ -1,0 +1,6 @@
+# The two vendored engines, pinned to the commits this tree builds against.
+# vendor/fetch.sh checks each one out here, with its own ggml submodule.
+#
+# path            url                                          commit
+qwentts.cpp       https://github.com/siderakis/qwentts.cpp.git    20a1d380965fafb91ce1672bc2227f1a96f23766
+vibevoice.cpp     https://github.com/siderakis/vibevoice.cpp.git  22d10724b3e5c34a56e739f3df47e6b21d94ee65

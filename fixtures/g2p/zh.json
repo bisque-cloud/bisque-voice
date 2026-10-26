@@ -1,0 +1,71 @@
+[
+  {
+    "text": "2026年的测试。",
+    "phonemes": "ɚ↘li↗ŋɚ↘ ljou↘njɛ↗n tɤ ʦʰɤ↘ʂɨ↘。",
+    "misaki": "<raises ValueError>"
+  },
+  {
+    "text": "2026年",
+    "phonemes": "ɚ↘li↗ŋɚ↘ ljou↘njɛ↗n",
+    "misaki": "二零二六年"
+  },
+  {
+    "text": "2026",
+    "phonemes": "ɚ↘ʨʰjɛ→n li↗ŋ ɚ↘ʂɨ↗ljou↘",
+    "misaki": "二千零二十六"
+  },
+  {
+    "text": "3.5倍的增长。",
+    "phonemes": "sa→ntjɛ↓n u↓pei↘ tɤ ʦə→ŋꭧa↓ŋ。",
+    "misaki": "<raises ValueError>"
+  },
+  {
+    "text": "你好。",
+    "phonemes": "ni↓xau↓。"
+  },
+  {
+    "text": "你好，世界！",
+    "phonemes": "ni↓xau↓，ʂɨ↘ʨje↘！"
+  },
+  {
+    "text": "我们在银行工作。",
+    "phonemes": "wo↓mən ʦai↘ i↗nxa↗ŋ kʊ→ŋʦwo↘。"
+  },
+  {
+    "text": "他长大了，头发很长。",
+    "phonemes": "tʰa→ ꭧa↓ŋta↘ lɤ，tʰou↗fa↘ xə↓nꭧa↓ŋ。"
+  },
+  {
+    "text": "2026年的测试。",
+    "phonemes": "ɚ↘li↗ŋɚ↘ ljou↘njɛ↗n tɤ ʦʰɤ↘ʂɨ↘。",
+    "misaki": "<raises ValueError>"
+  },
+  {
+    "text": "这个项目（一个老想法）终于成功了。",
+    "phonemes": "ꭧɤ↘kɤ ɕja↘ŋmu↘（i↗kɤ↘ lau↓ ɕja↓ŋfa↓）ꭧʊ→ŋy↗ ꭧʰə↗ŋkʊ→ŋ lɤ。"
+  },
+  {
+    "text": "北京、上海和广州都是大城市。",
+    "phonemes": "pei↓ʨi→ŋ、ʂa↘ŋxai↓ xɤ↗ kwa↓ŋꭧou→ tou→ ʂɨ↘ ta↘ꭧʰə↗ŋʂɨ↘。"
+  },
+  {
+    "text": "他说：“今天天气很好。”",
+    "phonemes": "tʰa→ ʂwo→：“ʨi→ntʰjɛ→ntʰjɛ→nʨʰi↘ xə↓n xau↓。”"
+  },
+  {
+    "text": "我买了3.5公斤苹果。",
+    "phonemes": "wo↓ mai↓ lɤ sa→ntjɛ↓n u↓kʊ→ŋʨi→n pʰi↗ŋkwo↓。"
+  },
+  {
+    "text": "中文和English混在一起。",
+    "phonemes": "ꭧʊ→ŋwə↗n xɤ↗Englishxwə↘nʦai↘ i↘ʨʰi↓。"
+  },
+  {
+    "text": "一二三四五六七八九十。",
+    "phonemes": "i→ɚ↘sa→nsɨ↘u↓ljou↘ʨʰi→pa→ʨjou↓ʂɨ↗。"
+  },
+  {
+    "text": "重要的事情说三遍。",
+    "phonemes": "ꭧʊ↘ŋjau↘ tɤ ʂɨ↘ʨʰi↗ŋ ʂwo→ sa→npjɛ↘n。"
+  }
+]

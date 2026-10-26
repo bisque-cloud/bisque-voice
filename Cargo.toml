@@ -1,0 +1,200 @@
+[package]
+name = "bisque-voice"
+version = "0.1.37"
+edition = "2021"
+description = "Bisque local speech — narration with word timings, and voice cloning"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "5"
+sha2 = "0.10"
+regex = "1"
+# Same HTTP stack as the `bisque` CLI: rustls, no OpenSSL to find on a
+# stranger's machine.
+ureq = { version = "2", features = ["json"] }
+flate2 = "1"
+tar = "0.4"
+# ONNX Runtime. `download-binaries` fetches the matching prebuilt runtime for
+# the target at build time, which is what makes the release matrix cheap.
+#
+# Optional, behind the `onnx` feature (default via `kokoro`): ONNX Runtime
+# publishes no build for `x86_64-apple-darwin` at all (1.28 dropped Intel
+# macOS), so the Intel-Mac release builds `--no-default-features` and ships
+# only the ggml-backed Studio engines. See `[features]` below.
+#
+# Execution providers are enabled per target, below — CoreML must not be a
+# build input on Linux and CUDA must not be one on macOS. The gates there are
+# the same `cfg` expressions `src/device.rs` compiles against; the two lists
+# have to stay in sync, and if they drift the crate fails to compile.
+ort = { version = "2.0.0-rc.10", features = [
+  "download-binaries",
+  "half",
+], optional = true }
+# Kokoro's fp16 export returns half-precision tensors; must match ort's half.
+half = { version = "2.1", optional = true }
+safetensors = { version = "0.4", optional = true }
+# The forced aligner's Whisper front end needs a 400-point FFT per 10 ms of
+# audio. Pure Rust (no C, no FFTW), so it does not cost the release matrix a
+# toolchain hunt.
+rustfft = { version = "6", optional = true }
+# ort re-exports the half-float type its fp16 tensors use.
+
+# File locking so two concurrent `bisque-voice` runs can't race on the model
+# download — the failure that produced the garbled-audio incident.
+fs4 = "0.12"
+mp3lame-encoder = "0.2.4"
+# Qwen3's byte-level BPE. `default-features = false` drops onig (a C library),
+# esaxx (C++) and the progress bar; `fancy-regex` is the pure-Rust regex engine
+# the pre-tokenizer needs for its one lookahead. Keeping this all-Rust is what
+# lets the release matrix cross-compile to Windows MSVC without a toolchain
+# hunt.
+tokenizers = { version = "0.23", default-features = false, features = [
+  "fancy-regex",
+] }
+# Lookbehind/lookahead, which `regex` does not have and Misaki's punctuation
+# pattern needs — a decimal separator is only punctuation when it is NOT
+# between two digits. Already in the tree via `tokenizers`, so this costs
+# nothing new.
+fancy-regex = { version = "0.17", optional = true }
+# eSpeak NG, for the five languages Misaki phonemizes with it (es, fr, it, pt,
+# hi). This is the one C dependency in the crate and it is not avoidable: those
+# languages have no lexicon, and their phonemes ARE eSpeak's rules — a
+# hand-rolled substitute would not be the sequence Kokoro was trained on.
+#
+# It costs the build a CMake toolchain and libclang (the crate generates its
+# bindings with bindgen). CI must set LIBCLANG_PATH on any runner where clang
+# is not on the default search path.
+#
+# NOT used for Chinese or Japanese. Misaki routes those through jieba/pypinyin
+# and MeCab instead, which is why raw eSpeak coverage measures only 78.6% and
+# 88.6% for them.
+espeak-rs-sys = { version = "0.2", optional = true }
+# Chinese word segmentation. Chinese is written without spaces, and the split
+# decides both the pronunciation (银行 is "yín háng", not "yín xíng") and where
+# the pauses land. Pure Rust, and its embedded dictionary is the one Python
+# jieba ships — verified to segment identically across the fixture corpus, but
+# only with HMM enabled, which is Python's default.
+jieba-rs = { version = "0.7", optional = true }
+# Japanese morphological analysis: the Rust equivalent of MeCab. Kanji carry no
+# pronunciation on their face, so reading Japanese needs a dictionary lookup,
+# not rules. Verified to produce the same segmentation and the same `pron`
+# field as the fugashi/MeCab pair Misaki uses.
+#
+# No `embed-*` feature: UniDic is 204 MB and is loaded from the g2p-ja pack at
+# runtime rather than compiled into the binary.
+lindera = { version = "4", optional = true }
+# NFKC normalization for Japanese text. Already in the tree via lindera.
+unicode-normalization = { version = "0.1", optional = true }
+
+# --- Hardware acceleration -------------------------------------------------
+#
+# `ort`'s prebuilt runtimes come from a fixed published table
+# (`ort-sys/build/download/dist.tsv`); the enabled feature set picks which
+# archive is fetched. What that table permits, per target, is what decides
+# whether a provider can be on by default:
+#
+#   aarch64-apple-darwin      +coreml            <- already what we download
+#   x86_64-pc-windows-msvc    +directml          <- already what we download
+#   x86_64-unknown-linux-gnu  +cuda13,tensorrt,nvrtx  (large; opt-in)
+#   aarch64-unknown-linux-gnu  (none)            <- no CUDA build exists
+#   (any target)               no XNNPACK build exists at all
+#
+# So CoreML and DirectML are free: enabling them selects the *same* archive the
+# build already pulls with no EP features, and both are OS components, not
+# extra runtime dependencies. Turning them on only makes the provider reachable
+# from Rust. See the module docs in `src/device.rs`.
+#
+# The macOS gate is by OS rather than by arch on purpose: `x86_64-apple-darwin`
+# has no published build *at all* for this ONNX Runtime (1.28 dropped it), so
+# narrowing the gate would not rescue that target — it cannot build with or
+# without CoreML. This is unrelated to acceleration and predates it. What DOES
+# rescue that target is the `kokoro`/`onnx` feature gate below: without `onnx`
+# these sections are inert, and the Studio engines build on Intel macOS.
+
+[target.'cfg(target_os = "macos")'.dependencies]
+ort = { version = "2.0.0-rc.10", features = ["coreml"], optional = true }
+# Apple's context-aware POS tagger, used to resolve heteronyms the rule-based
+# tagger abstains on ("your real users live") — parity with the Swift engine.
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-natural-language = "0.3"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+ort = { version = "2.0.0-rc.10", features = ["directml"], optional = true }
+
+[features]
+default = ["kokoro"]
+
+# ── Platform support is per-engine ──────────────────────────────────────────
+#
+# The Kokoro engine and both forced aligners run on ONNX Runtime; the Studio
+# (voice-cloning) engines run on ggml via the vendored qwentts.cpp and build
+# everywhere a C++ toolchain does. ONNX Runtime publishes no build for
+# `x86_64-apple-darwin` (1.28 dropped Intel macOS), so platform support is
+# expressed here rather than by dropping the whole binary on that target:
+#
+#   default build            = today's binary, byte-equivalent in behavior
+#   --no-default-features    = Studio only, no `ort` in the graph at all —
+#                              this is what the Intel-Mac release leg builds
+#
+# A Kokoro-less build still LISTS kokoro and the aligners (`engines`,
+# `aligners`, `doctor`) but reports them unavailable with the platform reason;
+# see `fetch::Unsupported`.
+
+# The Kokoro engine: the `ort` graph runner plus everything that exists only
+# to feed it — the G2P stack (Misaki lexicons, BART fallback via safetensors,
+# eSpeak NG, jieba, lindera) and the per-language data-pack plumbing.
+kokoro = [
+  "onnx",
+  "dep:safetensors",
+  "dep:espeak-rs-sys",
+  "dep:jieba-rs",
+  "dep:lindera",
+  "dep:unicode-normalization",
+  "dep:fancy-regex",
+]
+# The ONNX Runtime substrate. Its own feature rather than folded into `kokoro`
+# because the forced aligners need it too and are not Kokoro — gate on what
+# each component actually needs.
+onnx = ["dep:ort", "dep:half", "dep:rustfft"]
+
+# The two acceleration knobs, neither on by default. Because Cargo features
+# are not target-conditional, each one is meaningful on exactly one platform
+# and breaks the build elsewhere — so `--all-features` is not a supported
+# invocation of this crate.
+#
+# Linux x86_64 only. Opt-in for two reasons that are not preferences: there is
+# no CUDA build published for `aarch64-unknown-linux-gnu`, which is in this
+# crate's release matrix, so defaulting it on would break that target's build
+# outright; and the x86_64 CUDA archive is far larger than the plain one. A
+# person with an NVIDIA box builds with `--features cuda`.
+cuda = ["onnx", "ort/cuda"]
+# Requires your own ONNX Runtime (`ORT_LIB_LOCATION`) — no published build
+# carries XNNPACK for any target, so with `download-binaries` this fails during
+# feature-set resolution, before any of this crate compiles.
+xnnpack = ["onnx", "ort/xnnpack"]
+
+[build-dependencies]
+# Builds the vendored qwentts.cpp (`vendor/qwentts.cpp`, pinned submodule) and
+# its ggml. C++17 plus CMake — the same toolchain `espeak-rs-sys` already
+# forces, so this adds no new build-time requirement beyond a C++ compiler.
+cmake = "0.1"
+# The qwentts.cpp C99 ABI is POD structs whose field offsets this crate must
+# agree with exactly; `qt_tts_params` alone is 25 fields of mixed pointers,
+# bools and ints. Hand-transcribing that is a silent-corruption bug waiting to
+# happen, and upstream names bindgen as the supported Rust consumer, so the
+# header is the single source of truth. libclang is already required by
+# `espeak-rs-sys`, which generates its bindings the same way.
+bindgen = "0.70"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+strip = true
+lto = true
+opt-level = 3

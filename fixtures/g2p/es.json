@@ -1,0 +1,42 @@
+[
+  {
+    "text": "Hola.",
+    "phonemes": "ˈola."
+  },
+  {
+    "text": "Hola, ¿cómo estás?",
+    "phonemes": "ˈola, ¿kˈomo estˈas?"
+  },
+  {
+    "text": "Tengo 19,99 euros en el bolsillo.",
+    "phonemes": "tˈɛŋɡo ðjˌɛθinwˈeβe kˌoma noβˌɛntainwˈeβe ˈeʊɾos en el βolsˈiʎo."
+  },
+  {
+    "text": "El proyecto (una idea vieja) por fin funciona.",
+    "phonemes": "el pɾoʝˈekto (ˈuna iðˈea βjˈexa) poɾ fˈin funθjˈona."
+  },
+  {
+    "text": "«Buenos días», dijo ella.",
+    "phonemes": "“bwˈenos ðˈias”, dˈixo ˈeʎa."
+  },
+  {
+    "text": "Son las 3.5 veces más rápido.",
+    "phonemes": "sˈon las tɾˈes."
+  },
+  {
+    "text": "¡Increíble! No me lo puedo creer…",
+    "phonemes": "¡ˌinkɾeˈiβle! nˈo me lo pwˈeðo kɾeˈeɾ…"
+  },
+  {
+    "text": "Madrid, Barcelona; Sevilla: tres ciudades.",
+    "phonemes": "maðɾˈid, bˌaɾθelˈona; seβˈiʎa: tɾˈes θjuðˈaðes."
+  },
+  {
+    "text": "El software de Microsoft no es barato.",
+    "phonemes": "el sˈoftweɾ ðe mˈIkɾosoft nˈo ˈes βaɾˈato."
+  },
+  {
+    "text": "1, 2, 3 — vamos.",
+    "phonemes": "ˈuno, dˈos, tɾˈes — bˈamos."
+  }
+]
