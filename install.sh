@@ -11,14 +11,27 @@
 # handles the DLLs that ship next to bisque-voice.exe.
 #
 # Environment:
-#   BISQUE_VOICE_BASE_URL   release root. curl speaks file://, so pointing this
-#                         at a local directory exercises the whole
+#   BISQUE_VOICE_BASE_URL   release root, laid out as latest.json and
+#                         v{VERSION}/. Defaults to this repository's GitHub
+#                         Releases. curl speaks file://, so pointing this at a
+#                         local directory exercises the whole
 #                         resolve → download → verify → extract path offline.
+#                         Versions before 0.1.38 were not built on GitHub; set
+#                         it to https://download.bisque.today/bisque-voice to
+#                         install one of those.
 #   BISQUE_BIN_DIR        install directory
 #   BISQUE_VOICE_VERSION    pin a version instead of resolving latest.json
 set -eu
 
-BASE="${BISQUE_VOICE_BASE_URL:-https://download.bisque.today/bisque-voice}"
+RELEASES="https://github.com/bisque-cloud/bisque-voice/releases"
+if [ -n "${BISQUE_VOICE_BASE_URL:-}" ]; then
+  BASE="$BISQUE_VOICE_BASE_URL"
+  LATEST="$BASE/latest.json"
+else
+  BASE="$RELEASES/download"
+  LATEST="$RELEASES/latest/download/latest.json"
+fi
+PS1_URL="https://download.bisque.today/bisque-voice/install.ps1"
 BIN_DIR="${BISQUE_BIN_DIR:-$HOME/.bisque/bin}"
 
 case "$(uname -s)" in
@@ -28,12 +41,12 @@ case "$(uname -s)" in
     # Git Bash and friends are Windows. The MSVC build is the right one, but
     # it needs its DLLs placed beside the .exe — install.ps1 does that.
     echo "bisque-voice: this is Windows — install with PowerShell:" >&2
-    echo "  irm $BASE/install.ps1 | iex" >&2
+    echo "  irm $PS1_URL | iex" >&2
     exit 1
     ;;
   *)
     echo "bisque-voice: unsupported OS $(uname -s)." >&2
-    echo "  On Windows:  irm $BASE/install.ps1 | iex" >&2
+    echo "  On Windows:  irm $PS1_URL | iex" >&2
     echo "  Builds exist for macOS (Apple Silicon and Intel), Linux (x86_64, aarch64) and Windows (x86_64)." >&2
     exit 1
     ;;
@@ -67,11 +80,11 @@ target="${arch}-${os}"
 version="${BISQUE_VOICE_VERSION:-}"
 if [ -z "$version" ]; then
   # latest.json is small and regular; a grep beats requiring jq to be installed.
-  version="$(curl -fsSL "$BASE/latest.json" | tr ',' '\n' | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+  version="$(curl -fsSL "$LATEST" | tr ',' '\n' | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
 fi
 version="${version#v}"
 if [ -z "$version" ]; then
-  echo "bisque-voice: could not resolve the latest version from $BASE/latest.json" >&2
+  echo "bisque-voice: could not resolve the latest version from $LATEST" >&2
   exit 1
 fi
 

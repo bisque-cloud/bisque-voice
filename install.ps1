@@ -13,9 +13,15 @@
 # Overridable by environment (they work through `irm | iex`, where parameters
 # cannot be passed) or by parameter when the file is run directly:
 #
-#   $env:BISQUE_VOICE_BASE_URL   release root; a file:// URL or a local
+#   $env:BISQUE_VOICE_BASE_URL   release root, laid out as latest.json and
+#                              v{VERSION}/. Defaults to this repository's
+#                              GitHub Releases. A file:// URL or a local
 #                              directory works, which is how the download ->
-#                              verify -> extract path is exercised offline
+#                              verify -> extract path is exercised offline.
+#                              Versions before 0.1.38 were not built on
+#                              GitHub; set it to
+#                              https://download.bisque.today/bisque-voice to
+#                              install one of those.
 #   $env:BISQUE_BIN_DIR        install directory
 #   $env:BISQUE_VOICE_VERSION    pin a version instead of resolving latest.json
 #
@@ -28,7 +34,7 @@
 # a human, not pipeline data a caller might capture.
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '')]
 param(
-  [string]$BaseUrl = $(if ($env:BISQUE_VOICE_BASE_URL) { $env:BISQUE_VOICE_BASE_URL } else { 'https://download.bisque.today/bisque-voice' }),
+  [string]$BaseUrl = $(if ($env:BISQUE_VOICE_BASE_URL) { $env:BISQUE_VOICE_BASE_URL } else { 'https://github.com/bisque-cloud/bisque-voice/releases/download' }),
   [string]$BinDir = $(if ($env:BISQUE_BIN_DIR) { $env:BISQUE_BIN_DIR } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.bisque\bin' }),
   [string]$Version = $env:BISQUE_VOICE_VERSION
 )
@@ -53,7 +59,7 @@ if ($PSVersionTable.PSVersion.Major -lt 5) {
 # a non-Windows PowerShell, where install.sh is the right answer.
 $arch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
 if (-not $arch) {
-  Fail "this does not look like Windows. Install with:`n  curl -fsSL $BaseUrl/install.sh | sh"
+  Fail "this does not look like Windows. Install with:`n  curl -fsSL https://download.bisque.today/bisque-voice/install.sh | sh"
 }
 
 switch ($arch.ToUpperInvariant()) {
@@ -105,6 +111,10 @@ function Get-Payload {
   }
 }
 
+# GitHub serves the newest release's files under a fixed path of their own, not
+# beside the versioned directories, so the default resolves latest.json there.
+$latestUrl = if ($env:BISQUE_VOICE_BASE_URL -or $PSBoundParameters.ContainsKey('BaseUrl')) { "$BaseUrl/latest.json" } else { 'https://github.com/bisque-cloud/bisque-voice/releases/latest/download/latest.json' }
+
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("bisque-voice-" + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmp -Force | Out-Null
 
@@ -112,13 +122,13 @@ try {
   if (-not $Version) {
     $manifestPath = Join-Path $tmp 'latest.json'
     try {
-      Get-Payload -Url "$BaseUrl/latest.json" -Destination $manifestPath
+      Get-Payload -Url $latestUrl -Destination $manifestPath
     } catch {
-      Fail "could not fetch $BaseUrl/latest.json - $($_.Exception.Message)"
+      Fail "could not fetch $latestUrl - $($_.Exception.Message)"
     }
     # -Raw because 5.1's ConvertFrom-Json chokes on a string[] from Get-Content.
     $Version = (Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json).version
-    if (-not $Version) { Fail "could not read a version out of $BaseUrl/latest.json" }
+    if (-not $Version) { Fail "could not read a version out of $latestUrl" }
   }
   $Version = $Version.TrimStart('v')
 
