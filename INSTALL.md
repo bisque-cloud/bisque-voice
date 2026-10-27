@@ -28,7 +28,7 @@ consent. Running the installer again upgrades in place.
 | Variable               | Effect                                                |
 | ---------------------- | ----------------------------------------------------- |
 | `BISQUE_BIN_DIR`       | Install somewhere other than `~/.bisque/bin`          |
-| `BISQUE_VOICE_VERSION` | Install that version instead of the latest (`0.1.37`) |
+| `BISQUE_VOICE_VERSION` | Install that version instead of the latest (`0.1.38`) |
 
 **Check:** `bisque-voice --version` prints a version, and `bisque-voice doctor`
 says where models live and that none are installed yet.
@@ -77,6 +77,21 @@ The checksum proves the file arrived intact. The signature proves who built
 it: someone who could replace the archive could replace its checksum too, but
 not sign as team `UG9Z22779U`. Every release also lists all its checksums in
 `v{VERSION}/SHASUMS256.txt`.
+
+### Checking it was built from this repository
+
+Every release since 0.1.38 is built by this repository's
+[release workflow](./.github/workflows/release.yml) on GitHub's own runners,
+and each archive and each file inside it carries a signed provenance record
+naming the commit and the run that produced it. With the GitHub CLI:
+
+```sh
+gh attestation verify ~/.bisque/bin/bisque-voice --repo bisque-cloud/bisque-voice
+```
+
+This works on the installed binary as well as on a downloaded archive. It
+passes only for a file built here; the output names the tag and the workflow
+run.
 
 ## 2. Install a voice model
 
