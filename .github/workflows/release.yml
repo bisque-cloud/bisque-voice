@@ -1,0 +1,640 @@
+name: Release
+
+# Builds bisque-voice for every platform from the tagged commit of this
+# repository, signs and notarizes the macOS builds, records where each binary
+# came from, and publishes them to download.bisque.today and to this
+# repository's Releases.
+#
+#   bisque-voice/v{VERSION}/bisque-voice-{target}.tar.gz(.sha256)   immutable
+#   bisque-voice/v{VERSION}/SHASUMS256.txt                        immutable
+#   bisque-voice/latest.json                                      5-min cache
+#   bisque-voice/install.sh, install.ps1                          5-min cache
+#
+# Every binary and every archive gets a build provenance attestation, so anyone
+# can check that a download was built here, from this commit, by this workflow:
+#
+#   gh attestation verify bisque-voice --repo bisque-cloud/bisque-voice
+#
+# Every job runs on a GitHub-hosted runner, so no machine we control touches
+# the build. The model packs are not built here: they are data, published
+# before the release that pins them, and a release only reads their checksums
+# back (see "Model packs" in CONTRIBUTING.md).
+#
+# Secrets live in the `release` environment, which only `v*` tags can use, and
+# only repository admins can create a `v*` tag. Uploads to download.bisque.today
+# sign in with this workflow's own GitHub identity; there is no stored cloud key.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  DEVELOPER_ID_NAME: "Developer ID Application: Purr and Meow, LLC (UG9Z22779U)"
+  TEAM_ID: UG9Z22779U
+
+jobs:
+  # ── the model packs this release pins ───────────────────────────────────────
+  # Each pack's SHA-256 is compiled into every binary
+  # (`BISQUE_VOICE_PACK_SHA256_<ID>`), and a build with no checksum for a pack
+  # refuses to download it. The pack names come from the registries in src/;
+  # each one must already be published.
+  packs:
+    runs-on: ubuntu-latest
+    outputs:
+      kokoro_sha: ${{ steps.packs.outputs.kokoro_sha }}
+      kokoro_version: ${{ steps.packs.outputs.kokoro_version }}
+      clone06_sha: ${{ steps.packs.outputs.clone06_sha }}
+      clone06_version: ${{ steps.packs.outputs.clone06_version }}
+      clone17_sha: ${{ steps.packs.outputs.clone17_sha }}
+      clone17_version: ${{ steps.packs.outputs.clone17_version }}
+      voices06_sha: ${{ steps.packs.outputs.voices06_sha }}
+      voices06_version: ${{ steps.packs.outputs.voices06_version }}
+      voices17_sha: ${{ steps.packs.outputs.voices17_sha }}
+      voices17_version: ${{ steps.packs.outputs.voices17_version }}
+      espeak_sha: ${{ steps.packs.outputs.espeak_sha }}
+      espeak_version: ${{ steps.packs.outputs.espeak_version }}
+      zh_sha: ${{ steps.packs.outputs.zh_sha }}
+      zh_version: ${{ steps.packs.outputs.zh_version }}
+      ja_sha: ${{ steps.packs.outputs.ja_sha }}
+      ja_version: ${{ steps.packs.outputs.ja_version }}
+      q4_sha: ${{ steps.packs.outputs.q4_sha }}
+      q4_version: ${{ steps.packs.outputs.q4_version }}
+      fp32_sha: ${{ steps.packs.outputs.fp32_sha }}
+      fp32_version: ${{ steps.packs.outputs.fp32_version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Read each pack's published checksum
+        id: packs
+        run: |
+          set -euo pipefail
+          BASE="https://download.bisque.today/bisque-voice/models"
+          # key, registry file, pack-name prefix. Matched per prefix: `head -1`
+          # over a whole registry would pin the wrong pack under the wrong name.
+          while read -r key file prefix; do
+            ver="$(grep -oE "pack_version: \"$prefix-[^\"]+\"" "$file" | head -1 | sed 's/.*"\(.*\)"/\1/')"
+            test -n "$ver" || { echo "::error::could not read the $prefix pack_version from $file"; exit 1; }
+            sha="$(curl -fsSL --retry 3 "$BASE/$ver.tar.gz.sha256" | awk '{print $1}')" \
+              || { echo "::error::$ver is not published yet; publish the pack before releasing a binary that pins it"; exit 1; }
+            [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::$ver.tar.gz.sha256 holds no checksum"; exit 1; }
+            echo "$ver $sha"
+            echo "${key}_version=$ver" >> "$GITHUB_OUTPUT"
+            echo "${key}_sha=$sha" >> "$GITHUB_OUTPUT"
+          done <<'PACKS'
+          kokoro   src/engine.rs  kokoro
+          clone06  src/engine.rs  qwen3-clone-06b
+          clone17  src/engine.rs  qwen3-clone-17b
+          voices06 src/engine.rs  qwen3-voices-06b
+          voices17 src/engine.rs  qwen3-voices-17b
+          espeak   src/g2p/pack.rs kokoro-g2p-espeak
+          zh       src/g2p/pack.rs kokoro-g2p-zh
+          ja       src/g2p/pack.rs kokoro-g2p-ja
+          q4       src/align.rs   qwen3-aligner-q4
+          fp32     src/align.rs   qwen3-aligner-fp32
+          PACKS
+
+  # ── the binaries ────────────────────────────────────────────────────────────
+  # Every leg but one builds the default feature set (Kokoro and the Qwen3
+  # engines). The Intel macOS leg builds `--no-default-features`: ONNX Runtime
+  # publishes no build for Intel macOS, so that binary carries the Qwen3
+  # engines only and reports Kokoro and the aligners unavailable with the
+  # reason (`kokoro: false` drives the differences below).
+  build:
+    needs: packs
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # sign the provenance attestation
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            apple: true
+            kokoro: true
+            cargo_flags: ""
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+            apple: true
+            kokoro: false
+            cargo_flags: "--no-default-features"
+            # The oldest macOS this binary must run on: many surviving Intel
+            # Macs stop at Ventura. Explicit because the C++ side otherwise
+            # inherits the runner's own macOS version.
+            macosx_deployment_target: "13.0"
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            apple: false
+            kokoro: true
+            cargo_flags: ""
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            apple: false
+            kokoro: true
+            cargo_flags: ""
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            apple: false
+            kokoro: true
+            cargo_flags: ""
+    runs-on: ${{ matrix.os }}
+    env:
+      BISQUE_VOICE_PACK_SHA256_KOKORO: ${{ needs.packs.outputs.kokoro_sha }}
+      BISQUE_VOICE_PACK_SHA256_QWEN3_CLONE_06B: ${{ needs.packs.outputs.clone06_sha }}
+      BISQUE_VOICE_PACK_SHA256_QWEN3_CLONE_17B: ${{ needs.packs.outputs.clone17_sha }}
+      BISQUE_VOICE_PACK_SHA256_QWEN3_VOICES_06B: ${{ needs.packs.outputs.voices06_sha }}
+      BISQUE_VOICE_PACK_SHA256_QWEN3_VOICES_17B: ${{ needs.packs.outputs.voices17_sha }}
+      BISQUE_VOICE_PACK_SHA256_G2P_ESPEAK: ${{ needs.packs.outputs.espeak_sha }}
+      BISQUE_VOICE_PACK_SHA256_G2P_ZH: ${{ needs.packs.outputs.zh_sha }}
+      BISQUE_VOICE_PACK_SHA256_G2P_JA: ${{ needs.packs.outputs.ja_sha }}
+      BISQUE_VOICE_PACK_SHA256_QWEN3_Q4: ${{ needs.packs.outputs.q4_sha }}
+      BISQUE_VOICE_PACK_SHA256_QWEN3_FP32: ${{ needs.packs.outputs.fp32_sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Check the tag against Cargo.toml
+        id: meta
+        shell: bash
+        run: |
+          # The published path is immutable, so a tag that disagrees with the
+          # crate would ship a binary whose --version names another release.
+          CARGO="$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml | head -1)"
+          test "$CARGO" = "${GITHUB_REF_NAME#v}" || { echo "::error::tag $GITHUB_REF_NAME != Cargo.toml $CARGO"; exit 1; }
+          echo "version=$CARGO" >> "$GITHUB_OUTPUT"
+
+      # The two C++ engines, at the commits in vendor/PINS. build.rs compiles
+      # them for every target, including a build that ships only Kokoro.
+      - name: Fetch the vendored engines
+        shell: bash
+        run: sh vendor/fetch.sh
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${{ matrix.macosx_deployment_target || '' }}" ]; then
+            export MACOSX_DEPLOYMENT_TARGET="${{ matrix.macosx_deployment_target }}"
+          fi
+          cargo build --release --target ${{ matrix.target }} ${{ matrix.cargo_flags }}
+
+      # The pronunciation fixture tests refuse to run without real language
+      # data, and the silent-synthesis regression test needs the real Kokoro
+      # model: a skipped test never fails. Fetch the exact packs this release
+      # pins, checked against the checksums the binary was built with. Skipped
+      # on the Intel leg, where those tests are compiled out.
+      - name: Fetch model and pronunciation data for the tests
+        if: matrix.kokoro == true
+        shell: bash
+        env:
+          KOKORO_VERSION: ${{ needs.packs.outputs.kokoro_version }}
+          ESPEAK_VERSION: ${{ needs.packs.outputs.espeak_version }}
+          ZH_VERSION: ${{ needs.packs.outputs.zh_version }}
+          JA_VERSION: ${{ needs.packs.outputs.ja_version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          fetch() { # $1 = pack version, $2 = expected sha256
+            curl -fsSL --retry 3 \
+              "https://download.bisque.today/bisque-voice/models/$1.tar.gz" \
+              -o "dist/$1.tar.gz"
+            if command -v sha256sum >/dev/null 2>&1; then
+              got="$(sha256sum "dist/$1.tar.gz" | awk '{print $1}')"
+            else
+              got="$(shasum -a 256 "dist/$1.tar.gz" | awk '{print $1}')"
+            fi
+            [ "$got" = "$2" ] || { echo "::error::$1 downloaded as $got, expected $2"; exit 1; }
+            mkdir -p "dist/$1"
+            tar xzf "dist/$1.tar.gz" -C "dist/$1"
+            rm "dist/$1.tar.gz"
+          }
+          fetch "$KOKORO_VERSION" "$BISQUE_VOICE_PACK_SHA256_KOKORO"
+          fetch "$ESPEAK_VERSION" "$BISQUE_VOICE_PACK_SHA256_G2P_ESPEAK"
+          fetch "$ZH_VERSION" "$BISQUE_VOICE_PACK_SHA256_G2P_ZH"
+          fetch "$JA_VERSION" "$BISQUE_VOICE_PACK_SHA256_G2P_JA"
+
+          # The test process is a native binary; on Windows it cannot resolve
+          # git-bash's POSIX paths, so hand it Windows ones.
+          DIST="$(pwd)/dist"
+          if command -v cygpath >/dev/null 2>&1; then DIST="$(cygpath -w "$DIST")"; fi
+          SEP="/"; case "$DIST" in *\\*) SEP="\\" ;; esac
+          {
+            echo "BISQUE_VOICE_TEST_KOKORO_PACK=$DIST$SEP$KOKORO_VERSION"
+            echo "BISQUE_VOICE_ESPEAK_DATA=$DIST$SEP$ESPEAK_VERSION"
+            echo "BISQUE_VOICE_ZH_DATA=$DIST$SEP$ZH_VERSION"
+            echo "BISQUE_VOICE_JA_DATA=$DIST$SEP$JA_VERSION"
+          } >> "$GITHUB_ENV"
+
+      - name: Test
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${{ matrix.macosx_deployment_target || '' }}" ]; then
+            export MACOSX_DEPLOYMENT_TARGET="${{ matrix.macosx_deployment_target }}"
+          fi
+          cargo test --release --target ${{ matrix.target }} ${{ matrix.cargo_flags }}
+
+      # Proves the binary starts on a clean runner, that ONNX Runtime resolved,
+      # and that every checksum really is compiled in.
+      - name: Smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXE="target/${{ matrix.target }}/release/bisque-voice"
+          [ "${{ matrix.os }}" = "windows-latest" ] && EXE="$EXE.exe"
+          BUILT="$("$EXE" --version)"
+          echo "$BUILT"
+          [ "$BUILT" = "bisque-voice ${{ steps.meta.outputs.version }}" ] \
+            || { echo "::error::built binary reports '$BUILT', expected bisque-voice ${{ steps.meta.outputs.version }}"; exit 1; }
+          "$EXE" doctor | tee doctor.txt
+
+          # One entry per engine this leg can run. Forgetting to wire a new
+          # engine's checksum is a build failure here, not a refused download
+          # on someone's machine. The Intel leg checks only the engines it
+          # carries; doctor prints Kokoro's platform reason in its place.
+          PINNED=0
+          if [ "${{ matrix.kokoro }}" = "true" ]; then
+            ENGINE_SHAS="$BISQUE_VOICE_PACK_SHA256_KOKORO
+                         $BISQUE_VOICE_PACK_SHA256_QWEN3_CLONE_06B
+                         $BISQUE_VOICE_PACK_SHA256_QWEN3_CLONE_17B
+                         $BISQUE_VOICE_PACK_SHA256_QWEN3_VOICES_06B
+                         $BISQUE_VOICE_PACK_SHA256_QWEN3_VOICES_17B"
+          else
+            ENGINE_SHAS="$BISQUE_VOICE_PACK_SHA256_QWEN3_CLONE_06B
+                         $BISQUE_VOICE_PACK_SHA256_QWEN3_CLONE_17B
+                         $BISQUE_VOICE_PACK_SHA256_QWEN3_VOICES_06B
+                         $BISQUE_VOICE_PACK_SHA256_QWEN3_VOICES_17B"
+          fi
+          for SHA in $ENGINE_SHAS; do
+            grep -q "$SHA" doctor.txt \
+              || { echo "::error::a model checksum was not compiled in: $SHA"; exit 1; }
+            PINNED=$((PINNED + 1))
+          done
+
+          # The pronunciation packs and the aligners: not engines, so they do
+          # not count toward the cross-check below. Kokoro builds only.
+          if [ "${{ matrix.kokoro }}" = "true" ]; then
+            for SHA in "$BISQUE_VOICE_PACK_SHA256_G2P_ESPEAK" \
+                       "$BISQUE_VOICE_PACK_SHA256_G2P_ZH" \
+                       "$BISQUE_VOICE_PACK_SHA256_G2P_JA" \
+                       "$BISQUE_VOICE_PACK_SHA256_QWEN3_Q4" \
+                       "$BISQUE_VOICE_PACK_SHA256_QWEN3_FP32"; do
+              grep -q "$SHA" doctor.txt \
+                || { echo "::error::a pack checksum was not compiled in: $SHA"; exit 1; }
+            done
+          fi
+
+          # A release offers exactly the engines it pinned. An engine without
+          # a published pack is still listed, but must say it can't install.
+          "$EXE" engines --json > engines.json
+          OFFERED="$(grep -c '"installable": true' engines.json || true)"
+          [ "$OFFERED" = "$PINNED" ] || {
+            echo "::error::$OFFERED engines report themselves installable but $PINNED are pinned"
+            cat engines.json; exit 1; }
+
+          # The Intel build still lists Kokoro, with the machine-readable
+          # platform reason, and refuses to install it with that reason.
+          if [ "${{ matrix.kokoro }}" = "false" ]; then
+            grep -q '"kokoro"' engines.json \
+              || { echo "::error::kokoro vanished from the registry instead of reporting why"; cat engines.json; exit 1; }
+            grep -q '"platform-unsupported"' engines.json \
+              || { echo "::error::kokoro is missing its platform-unsupported reason"; cat engines.json; exit 1; }
+            if "$EXE" install kokoro > install.txt 2>&1; then
+              echo "::error::install kokoro must refuse on this build"; exit 1
+            fi
+            grep -q "Intel Macs" install.txt \
+              || { echo "::error::the install refusal lost its platform reason"; cat install.txt; exit 1; }
+          fi
+
+      # The Intel leg's proof of life: a real synthesis with the published
+      # 0.6B clone pack. `engines --json` saying the right thing is not audio.
+      - name: Real synthesis (Intel)
+        if: matrix.kokoro == false
+        shell: bash
+        env:
+          CLONE06_VERSION: ${{ needs.packs.outputs.clone06_version }}
+        run: |
+          set -euo pipefail
+          MODELS="$RUNNER_TEMP/models"
+          mkdir -p "$MODELS/$CLONE06_VERSION"
+          curl -fsSL --retry 3 \
+            "https://download.bisque.today/bisque-voice/models/$CLONE06_VERSION.tar.gz" \
+            -o "$RUNNER_TEMP/$CLONE06_VERSION.tar.gz"
+          got="$(shasum -a 256 "$RUNNER_TEMP/$CLONE06_VERSION.tar.gz" | awk '{print $1}')"
+          [ "$got" = "$BISQUE_VOICE_PACK_SHA256_QWEN3_CLONE_06B" ] \
+            || { echo "::error::$CLONE06_VERSION downloaded as $got, expected $BISQUE_VOICE_PACK_SHA256_QWEN3_CLONE_06B"; exit 1; }
+          tar xzf "$RUNNER_TEMP/$CLONE06_VERSION.tar.gz" -C "$MODELS/$CLONE06_VERSION"
+          touch "$MODELS/$CLONE06_VERSION/.complete"
+
+          EXE="target/${{ matrix.target }}/release/bisque-voice"
+          START="$(date +%s)"
+          BISQUE_VOICE_MODEL_DIR="$MODELS" "$EXE" \
+            --text "This narration was synthesized on an Intel Mac, as a release check." \
+            --voice qwen3-clone-06b:default \
+            --language english \
+            --out smoke.mp3 > smoke.json
+          END="$(date +%s)"
+          cat smoke.json
+          DUR_MS="$(sed -n 's/.*"durationMs":\([0-9][0-9]*\).*/\1/p' smoke.json)"
+          [ -n "$DUR_MS" ] && [ "$DUR_MS" -gt 0 ] \
+            || { echo "::error::synthesis reported no duration"; exit 1; }
+          [ -s smoke.mp3 ] || { echo "::error::synthesis produced no audio file"; exit 1; }
+          echo "$((END - START)) s wall for ${DUR_MS} ms of audio, model load included"
+
+      - name: Import signing certificate
+        if: matrix.apple == true
+        env:
+          CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          CERT_P12_PASSWORD: ${{ secrets.MACOS_CERT_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          CERT_PATH="$RUNNER_TEMP/cert.p12"
+          echo "$CERT_P12_BASE64" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$CERT_P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          # `tr`, not `sed 's/[\"\t ]//g'`: BSD sed reads `\t` inside brackets
+          # as a literal `t`, which mangles keychain paths containing one.
+          security list-keychains -d user -s "$KEYCHAIN_PATH" \
+            $(security list-keychains -d user | tr -d '"\t ')
+          rm -f "$CERT_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -F "$DEVELOPER_ID_NAME" \
+            || { echo "Developer ID certificate not found after import" >&2; exit 1; }
+
+      # The binary requests no entitlements: it holds no credentials and never
+      # touches the Keychain, so a bare hardened-runtime signature is enough.
+      - name: Codesign and notarize
+        if: matrix.apple == true
+        env:
+          API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          BIN="target/${{ matrix.target }}/release/bisque-voice"
+          codesign --force --sign "$DEVELOPER_ID_NAME" --options=runtime --timestamp "$BIN"
+          codesign --verify --strict --verbose=2 "$BIN"
+
+          KEY_PATH="$RUNNER_TEMP/notarytool.p8"
+          echo "$API_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH"
+          [ -s "$KEY_PATH" ] || { echo "::error::APPLE_API_KEY_P8_BASE64 decoded empty"; exit 1; }
+          ZIP="$RUNNER_TEMP/notarize-${{ matrix.target }}.zip"
+          ditto -c -k "$BIN" "$ZIP"
+
+          set +e
+          OUT="$(xcrun notarytool submit "$ZIP" --key "$KEY_PATH" --key-id "$API_KEY_ID" \
+                  --issuer "$API_ISSUER_ID" --wait --timeout 30m 2>&1)"
+          RC=$?
+          set -e
+          echo "$OUT"
+          [ "$RC" -eq 0 ] || { echo "::error::notarytool submit failed ($RC)"; rm -f "$KEY_PATH"; exit 1; }
+          STATUS="$(printf '%s\n' "$OUT" | awk '/^[[:space:]]*status:/ {print $2; exit}')"
+          if [ "$STATUS" != "Accepted" ]; then
+            ID="$(printf '%s\n' "$OUT" | awk '/^[[:space:]]*id:/ {print $2; exit}')"
+            echo "::error::Notarization status: $STATUS ($ID)"
+            xcrun notarytool log "$ID" --key "$KEY_PATH" --key-id "$API_KEY_ID" --issuer "$API_ISSUER_ID" || true
+            rm -f "$KEY_PATH"; exit 1
+          fi
+          # A bare Mach-O cannot be stapled. Install is `curl | tar`, which sets
+          # no quarantine attribute, and notarization is recorded server-side
+          # for anyone who downloads it through a browser.
+          rm -f "$KEY_PATH" "$ZIP"
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME="bisque-voice-${{ matrix.target }}"
+          OUT="$(pwd)"
+          cd "target/${{ matrix.target }}/release"
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            # The .exe is not self-contained: ONNX Runtime's Windows build puts
+            # DirectML.dll beside it, and a clean Windows has no VC++ runtime
+            # (vcruntime140, msvcp140) or OpenMP (vcomp140), so the exe dies
+            # before main() without them. Ship them app-local, as Microsoft
+            # supports.
+            REDIST_CRT="$(ls -d "/c/Program Files/Microsoft Visual Studio/"*/*"/VC/Redist/MSVC/"*"/x64/Microsoft.VC"*".CRT" 2>/dev/null | head -1)"
+            test -n "$REDIST_CRT" || { echo "::error::VC redist CRT folder not found on runner"; exit 1; }
+            cp "$REDIST_CRT"/*.dll .
+            REDIST_OMP="$(ls -d "/c/Program Files/Microsoft Visual Studio/"*/*"/VC/Redist/MSVC/"*"/x64/Microsoft.VC"*".OpenMP" 2>/dev/null | head -1)"
+            test -n "$REDIST_OMP" || { echo "::error::VC redist OpenMP folder not found on runner"; exit 1; }
+            cp "$REDIST_OMP"/*.dll .
+            DLLS=$(ls *.dll 2>/dev/null || true)
+            # --dereference: ort emits DirectML.dll as a symlink into its
+            # per-runner cache. Pack the file the link points at, never the link.
+            # shellcheck disable=SC2086
+            tar czf "$OUT/$NAME.tar.gz" --dereference bisque-voice.exe $DLLS
+          else
+            tar czf "$OUT/$NAME.tar.gz" bisque-voice
+          fi
+
+      # The smoke test runs from the build directory, where every runtime
+      # dependency still sits beside the binary. Run what ships, from a
+      # directory that holds nothing else.
+      - name: Run what shipped, from a clean directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME="bisque-voice-${{ matrix.target }}"
+          EXE="bisque-voice"
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then EXE="bisque-voice.exe"; fi
+          STAGE="$(mktemp -d)"
+          tar xzf "$NAME.tar.gz" -C "$STAGE"
+          ls -l "$STAGE"
+          BAD="$(find "$STAGE" \( -type l -o \( -type f -size 0 \) \) | head -5)"
+          if [ -n "$BAD" ]; then
+            echo "::error::archive contains symlinks or empty files:"; echo "$BAD"; exit 1
+          fi
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            for d in vcruntime140.dll msvcp140.dll vcomp140.dll; do
+              find "$STAGE" -iname "$d" | grep -q . || { echo "::error::archive missing $d"; exit 1; }
+            done
+          fi
+          cd "$STAGE"
+          ./"$EXE" --version
+          ./"$EXE" doctor
+          # Hand the exact shipped files to the attestation step.
+          mkdir -p "$GITHUB_WORKSPACE/attest"
+          cp "$STAGE"/* "$GITHUB_WORKSPACE/attest/"
+          cp "$GITHUB_WORKSPACE/$NAME.tar.gz" "$GITHUB_WORKSPACE/attest/"
+
+      # Provenance for the archive and for every file inside it, so an
+      # installed `bisque-voice` can be checked as well as a download.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: attest/*
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bisque-voice-${{ matrix.target }}
+          path: bisque-voice-${{ matrix.target }}.tar.gz
+          retention-days: 7
+
+      - name: Clean up keychain
+        if: always() && matrix.apple == true
+        run: security delete-keychain "$RUNNER_TEMP/build.keychain-db" || true
+
+  # ── publish ─────────────────────────────────────────────────────────────────
+  publish:
+    needs: [packs, build]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write # create the GitHub Release
+      actions: write # start the release explainer
+      id-token: write # sign in to Google Cloud as this workflow
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: projects/938076719870/locations/global/workloadIdentityPools/github/providers/bisque-voice
+      - uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f # v2.2.1
+
+      - name: Publish to download.bisque.today
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          BASE="gs://download.bisque.today/bisque-voice"
+          TARGETS="aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-pc-windows-msvc"
+          for t in $TARGETS; do
+            test -f "artifacts/bisque-voice-$t.tar.gz" || { echo "::error::missing the $t build"; exit 1; }
+          done
+
+          # Checksums are computed here, once, over the exact bytes uploaded.
+          ( cd artifacts
+            for t in $TARGETS; do sha256sum "bisque-voice-$t.tar.gz" > "bisque-voice-$t.tar.gz.sha256"; done
+            for t in $TARGETS; do sha256sum "bisque-voice-$t.tar.gz"; done > SHASUMS256.txt )
+          cat artifacts/SHASUMS256.txt
+
+          # A published version is immutable: refuse to overwrite one.
+          if gcloud storage ls "$BASE/v$VERSION/SHASUMS256.txt" >/dev/null 2>&1; then
+            echo "::error::v$VERSION is already published"; exit 1
+          fi
+          for f in artifacts/*; do
+            gcloud storage cp "$f" "$BASE/v$VERSION/$(basename "$f")" \
+              --cache-control="public, max-age=31536000, immutable"
+          done
+
+          # Written after the archives, so a client never resolves a version
+          # whose archives aren't uploaded yet. `checksums` and `signing` put
+          # what to verify in the one document every client already fetches.
+          CHECKSUMS_JSON="$(
+            for t in $TARGETS; do
+              printf '%s %s\n' "$t" "$(awk '{print $1}' "artifacts/bisque-voice-$t.tar.gz.sha256")"
+            done | jq -R -s 'split("\n") | map(select(length > 0) | split(" ") | {(.[0]): .[1]}) | add'
+          )"
+          jq -n --arg v "$VERSION" \
+            --arg targets "$TARGETS" \
+            --argjson checksums "$CHECKSUMS_JSON" \
+            --arg team "$TEAM_ID" \
+            --arg authority "$DEVELOPER_ID_NAME" \
+            --arg repo "$GITHUB_REPOSITORY" \
+            --arg kokoro "${{ needs.packs.outputs.kokoro_version }}" \
+            --arg clone06 "${{ needs.packs.outputs.clone06_version }}" \
+            --arg clone17 "${{ needs.packs.outputs.clone17_version }}" \
+            --arg voices06 "${{ needs.packs.outputs.voices06_version }}" \
+            --arg voices17 "${{ needs.packs.outputs.voices17_version }}" \
+            --arg g2p_espeak "${{ needs.packs.outputs.espeak_version }}" \
+            --arg g2p_zh "${{ needs.packs.outputs.zh_version }}" \
+            --arg g2p_ja "${{ needs.packs.outputs.ja_version }}" \
+            --arg aligner_q4 "${{ needs.packs.outputs.q4_version }}" \
+            --arg aligner_fp32 "${{ needs.packs.outputs.fp32_version }}" \
+            --arg base "https://download.bisque.today/bisque-voice" '
+            {
+              version: $v,
+              modelPacks: {
+                kokoro: $kokoro,
+                "qwen3-clone-06b": $clone06,
+                "qwen3-clone-17b": $clone17,
+                "qwen3-voices-06b": $voices06,
+                "qwen3-voices-17b": $voices17,
+                "g2p-espeak": $g2p_espeak,
+                "g2p-zh": $g2p_zh,
+                "g2p-ja": $g2p_ja,
+                "qwen3-q4": $aligner_q4,
+                "qwen3-fp32": $aligner_fp32
+              },
+              assets: (
+                ($targets | split(" ") | map(select(length > 0)))
+                | map({(.): "\($base)/v\($v)/bisque-voice-\(.).tar.gz"})
+                | add
+              ),
+              checksums: $checksums,
+              checksumsFile: "\($base)/v\($v)/SHASUMS256.txt",
+              signing: {
+                algorithm: "sha256",
+                teamId: $team,
+                authority: $authority,
+                notarized: true,
+                verify: "codesign --verify --strict bisque-voice && codesign -dv --verbose=4 bisque-voice 2>&1 | grep TeamIdentifier=\($team)"
+              },
+              provenance: {
+                repository: $repo,
+                verify: "gh attestation verify bisque-voice --repo \($repo)"
+              }
+            }' > latest.json
+          cat latest.json
+          gcloud storage cp latest.json "$BASE/latest.json" --cache-control="public, max-age=300"
+
+          # Cached like latest.json rather than immutably: an installer bug has
+          # to be fixable without cutting a release.
+          gcloud storage cp install.sh "$BASE/install.sh" --cache-control="public, max-age=300"
+          # `irm <url> | iex` decodes with the declared charset, so the content
+          # type matters: labelled as a binary, PowerShell can hand `iex` bytes.
+          gcloud storage cp install.ps1 "$BASE/install.ps1" \
+            --cache-control="public, max-age=300" \
+            --content-type="text/plain; charset=utf-8"
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          BASE="https://download.bisque.today/bisque-voice"
+          {
+            echo "Install or upgrade on macOS and Linux:"
+            echo
+            echo '```sh'
+            echo "curl -fsSL $BASE/install.sh | sh"
+            echo '```'
+            echo
+            echo "On Windows, in PowerShell:"
+            echo
+            echo '```powershell'
+            echo "irm $BASE/install.ps1 | iex"
+            echo '```'
+            echo
+            echo "Every binary was built from this tag by [this run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID). To check one:"
+            echo
+            echo '```sh'
+            echo "gh attestation verify bisque-voice --repo $GITHUB_REPOSITORY"
+            echo '```'
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" --verify-tag \
+            --title "bisque-voice $VERSION" --notes-file notes.md \
+            artifacts/*.tar.gz artifacts/SHASUMS256.txt
+
+          # A release made with this job's token starts no workflow, so start
+          # the explainer by hand; a dispatch is the one event that token can
+          # trigger.
+          gh workflow run explain-releases.yml --ref main -f tag="$GITHUB_REF_NAME"

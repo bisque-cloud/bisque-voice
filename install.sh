@@ -123,7 +123,7 @@ chmod +x "$tmp/extract/bisque-voice"
 # key, not write access to a bucket. So on macOS, verify the signature and
 # verify it is OURS.
 if [ "$os" = "apple-darwin" ]; then
-  team_id="UG9Z22779U" # Purr and Meow, LLC — matches TEAM_ID in .github/workflows/bisque-voice-release.yml
+  team_id="UG9Z22779U" # Purr and Meow, LLC — matches TEAM_ID in .github/workflows/release.yml
   if ! command -v codesign >/dev/null 2>&1; then
     echo "bisque-voice: codesign is missing — install the Xcode command line tools" >&2
     echo "  (xcode-select --install). Refusing to install an unverified binary." >&2
