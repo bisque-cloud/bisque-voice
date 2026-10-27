@@ -28,8 +28,10 @@ bisque-voice --text "Revenue grew 3.5x to \$4.2M in Q3." \
   dollars" and still lands on the one word you typed.
 - **Your own voice from a 10–30 second clip.** Record yourself once, and
   every narration after that speaks in your voice.
-- **One program, nothing else to install.** No Python and no ffmpeg. Downloads
-  are checksummed, and the macOS builds are signed and notarized by Apple.
+- **One program, nothing else to install.** No Python and no ffmpeg.
+- **You can check what you're running.** Every release since 0.1.38 is
+  built from this repository on GitHub's runners, with a signed record of the commit it came
+  from, and the macOS builds are notarized by Apple.
 - **Easy for an agent to drive.** It never stops to ask a question, prints
   exactly one JSON document, and keeps its progress messages on a separate
   stream.
