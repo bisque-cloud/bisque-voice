@@ -1,7 +1,8 @@
 # bisque-voice
 
 Turn text into speech on your own computer, and get the start and end time of
-every word with it. For developers and agents on macOS, Linux and Windows.
+every word with it. For developers and agents on macOS, Linux and Windows. 
+Oh, and did I mention that it's written in Rust.
 
 ```sh
 bisque-voice --text "Revenue grew 3.5x to \$4.2M in Q3." \
