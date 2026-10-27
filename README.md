@@ -29,9 +29,9 @@ bisque-voice --text "Revenue grew 3.5x to \$4.2M in Q3." \
 - **Your own voice from a 10–30 second clip.** Record yourself once, and
   every narration after that speaks in your voice.
 - **One program, nothing else to install.** No Python and no ffmpeg.
-- **You can check what you're running.** Every release since 0.1.38 is
-  built from this repository on GitHub's runners, with a signed record of the commit it came
-  from, and the macOS builds are notarized by Apple.
+- **You can check what you're running.** Every release is built
+  from this repository on GitHub's runners, with a signed record of the commit
+  it came from, and the macOS builds are notarized by Apple.
 - **Easy for an agent to drive.** It never stops to ask a question, prints
   exactly one JSON document, and keeps its progress messages on a separate
   stream.
@@ -85,8 +85,8 @@ irm https://download.bisque.today/bisque-voice/install.ps1 | iex
 [INSTALL.md](./INSTALL.md) has every command and option.
 [CONTRIBUTING.md](./CONTRIBUTING.md) covers building from source and how it's
 made inside, and [GLOSSARY.md](./GLOSSARY.md) explains every term. Every
-release since 0.1.38 is built, attested and published by this repository's
-[release workflow](./.github/workflows/release.yml), where anyone can read it.
+release is built, signed (macOS), attested and published by this repository's
+[release workflow](./.github/workflows/release.yml).
 
 ## License
 
