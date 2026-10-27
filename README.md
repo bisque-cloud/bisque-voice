@@ -84,7 +84,9 @@ irm https://download.bisque.today/bisque-voice/install.ps1 | iex
 
 [INSTALL.md](./INSTALL.md) has every command and option.
 [CONTRIBUTING.md](./CONTRIBUTING.md) covers building from source and how it's
-made inside, and [GLOSSARY.md](./GLOSSARY.md) explains every term.
+made inside, and [GLOSSARY.md](./GLOSSARY.md) explains every term. Every
+release since 0.1.38 is built, attested and published by this repository's
+[release workflow](./.github/workflows/release.yml), where anyone can read it.
 
 ## License
 
