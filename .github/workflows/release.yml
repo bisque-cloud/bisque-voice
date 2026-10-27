@@ -2,13 +2,16 @@ name: Release
 
 # Builds bisque-voice for every platform from the tagged commit of this
 # repository, signs and notarizes the macOS builds, records where each binary
-# came from, and publishes them to download.bisque.today and to this
-# repository's Releases.
+# came from, and publishes them as this repository's GitHub Release:
 #
-#   bisque-voice/v{VERSION}/bisque-voice-{target}.tar.gz(.sha256)   immutable
-#   bisque-voice/v{VERSION}/SHASUMS256.txt                        immutable
-#   bisque-voice/latest.json                                      5-min cache
-#   bisque-voice/install.sh, install.ps1                          5-min cache
+#   releases/download/v{VERSION}/bisque-voice-{target}.tar.gz(.sha256)
+#   releases/download/v{VERSION}/SHASUMS256.txt
+#   releases/download/v{VERSION}/latest.json
+#
+# The installers resolve the newest release through
+# releases/latest/download/latest.json. download.bisque.today/bisque-voice/
+# install.sh and install.ps1 redirect to this repository's main branch, so an
+# installer fix ships without a release.
 #
 # Every binary and every archive gets a build provenance attestation, so anyone
 # can check that a download was built here, from this commit, by this workflow:
@@ -21,8 +24,7 @@ name: Release
 # back (see "Model packs" in CONTRIBUTING.md).
 #
 # Secrets live in the `release` environment, which only `v*` tags can use, and
-# only repository admins can create a `v*` tag. Uploads to download.bisque.today
-# sign in with this workflow's own GitHub identity; there is no stored cloud key.
+# only repository admins can create a `v*` tag.
 on:
   push:
     tags:
@@ -494,7 +496,6 @@ jobs:
     permissions:
       contents: write # create the GitHub Release
       actions: write # start the release explainer
-      id-token: write # sign in to Google Cloud as this workflow
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -503,17 +504,10 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
-        with:
-          workload_identity_provider: projects/938076719870/locations/global/workloadIdentityPools/github/providers/bisque-voice
-      - uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f # v2.2.1
-
-      - name: Publish to download.bisque.today
+      - name: Checksums and latest.json
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          BASE="gs://download.bisque.today/bisque-voice"
           TARGETS="aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-pc-windows-msvc"
           for t in $TARGETS; do
             test -f "artifacts/bisque-voice-$t.tar.gz" || { echo "::error::missing the $t build"; exit 1; }
@@ -525,18 +519,8 @@ jobs:
             for t in $TARGETS; do sha256sum "bisque-voice-$t.tar.gz"; done > SHASUMS256.txt )
           cat artifacts/SHASUMS256.txt
 
-          # A published version is immutable: refuse to overwrite one.
-          if gcloud storage ls "$BASE/v$VERSION/SHASUMS256.txt" >/dev/null 2>&1; then
-            echo "::error::v$VERSION is already published"; exit 1
-          fi
-          for f in artifacts/*; do
-            gcloud storage cp "$f" "$BASE/v$VERSION/$(basename "$f")" \
-              --cache-control="public, max-age=31536000, immutable"
-          done
-
-          # Written after the archives, so a client never resolves a version
-          # whose archives aren't uploaded yet. `checksums` and `signing` put
-          # what to verify in the one document every client already fetches.
+          # `checksums` and `signing` put what to verify in the one document
+          # every client already fetches.
           CHECKSUMS_JSON="$(
             for t in $TARGETS; do
               printf '%s %s\n' "$t" "$(awk '{print $1}' "artifacts/bisque-voice-$t.tar.gz.sha256")"
@@ -558,7 +542,7 @@ jobs:
             --arg g2p_ja "${{ needs.packs.outputs.ja_version }}" \
             --arg aligner_q4 "${{ needs.packs.outputs.q4_version }}" \
             --arg aligner_fp32 "${{ needs.packs.outputs.fp32_version }}" \
-            --arg base "https://download.bisque.today/bisque-voice" '
+            --arg base "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download" '
             {
               version: $v,
               modelPacks: {
@@ -593,16 +577,6 @@ jobs:
               }
             }' > latest.json
           cat latest.json
-          gcloud storage cp latest.json "$BASE/latest.json" --cache-control="public, max-age=300"
-
-          # Cached like latest.json rather than immutably: an installer bug has
-          # to be fixable without cutting a release.
-          gcloud storage cp install.sh "$BASE/install.sh" --cache-control="public, max-age=300"
-          # `irm <url> | iex` decodes with the declared charset, so the content
-          # type matters: labelled as a binary, PowerShell can hand `iex` bytes.
-          gcloud storage cp install.ps1 "$BASE/install.ps1" \
-            --cache-control="public, max-age=300" \
-            --content-type="text/plain; charset=utf-8"
 
       - name: Publish the GitHub Release
         env:
@@ -630,9 +604,12 @@ jobs:
             echo "gh attestation verify bisque-voice --repo $GITHUB_REPOSITORY"
             echo '```'
           } > notes.md
+          # One call with every file, so the release appears complete or not
+          # at all: the installers resolve the newest release's latest.json,
+          # and it must never name an archive that isn't attached yet.
           gh release create "$GITHUB_REF_NAME" --verify-tag \
             --title "bisque-voice $VERSION" --notes-file notes.md \
-            artifacts/*.tar.gz artifacts/SHASUMS256.txt
+            artifacts/*.tar.gz artifacts/*.tar.gz.sha256 artifacts/SHASUMS256.txt latest.json
 
           # A release made with this job's token starts no workflow, so start
           # the explainer by hand; a dispatch is the one event that token can

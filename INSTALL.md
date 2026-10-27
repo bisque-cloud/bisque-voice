@@ -30,6 +30,11 @@ consent. Running the installer again upgrades in place.
 | `BISQUE_BIN_DIR`       | Install somewhere other than `~/.bisque/bin`          |
 | `BISQUE_VOICE_VERSION` | Install that version instead of the latest (`0.1.38`) |
 
+Downloads come from this repository's
+[Releases](https://github.com/bisque-cloud/bisque-voice/releases). Versions
+before 0.1.38 were built elsewhere and are not there; to install one, also set
+`BISQUE_VOICE_BASE_URL=https://download.bisque.today/bisque-voice`.
+
 **Check:** `bisque-voice --version` prints a version, and `bisque-voice doctor`
 says where models live and that none are installed yet.
 
@@ -57,14 +62,14 @@ The installer already does this. To repeat it, read the current version and
 each archive's SHA-256 from `latest.json`:
 
 ```sh
-curl -fsSL https://download.bisque.today/bisque-voice/latest.json
+curl -fsSL https://github.com/bisque-cloud/bisque-voice/releases/latest/download/latest.json
 ```
 
 Then, on a Mac, with `V` set to that version:
 
 ```sh
-curl -fsSL -O "https://download.bisque.today/bisque-voice/v$V/bisque-voice-aarch64-apple-darwin.tar.gz"
-curl -fsSL -O "https://download.bisque.today/bisque-voice/v$V/bisque-voice-aarch64-apple-darwin.tar.gz.sha256"
+curl -fsSL -O "https://github.com/bisque-cloud/bisque-voice/releases/download/v$V/bisque-voice-aarch64-apple-darwin.tar.gz"
+curl -fsSL -O "https://github.com/bisque-cloud/bisque-voice/releases/download/v$V/bisque-voice-aarch64-apple-darwin.tar.gz.sha256"
 shasum -a 256 -c bisque-voice-aarch64-apple-darwin.tar.gz.sha256
 
 tar -xzf bisque-voice-aarch64-apple-darwin.tar.gz
