@@ -1,6 +1,6 @@
 [package]
 name = "bisque-voice"
-version = "0.1.38"
+version = "0.1.39"
 edition = "2021"
 description = "Bisque local speech — narration with word timings, and voice cloning"
 license = "MIT"
