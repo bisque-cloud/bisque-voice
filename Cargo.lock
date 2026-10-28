@@ -177,7 +177,7 @@ dependencies = [
 
 [[package]]
 name = "bisque-voice"
-version = "0.1.38"
+version = "0.1.39"
 dependencies = [
  "anyhow",
  "bindgen 0.70.1",
