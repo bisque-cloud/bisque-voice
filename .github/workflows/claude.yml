@@ -50,7 +50,9 @@ jobs:
           node-version: "22"
           package-manager-cache: false
       - name: Install the speech engine
-        run: node "$RUNNER_TEMP/presenter/action/src/install-bisque-voice.ts"
+        run: |
+          node "$RUNNER_TEMP/presenter/action/src/install-bisque-voice.ts"
+          ~/.bisque/bin/bisque-voice install kokoro
 
       # Claude can only write inside the checkout, so the presentation goes
       # there; this keeps it out of anything @claude commits.
