@@ -62,7 +62,7 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ github.token }} # test only: this repo has no Claude GitHub App
+          github_token: ${{ github.token }} # without the Claude GitHub App, reply as github-actions[bot]
           plugin_marketplaces: ${{ runner.temp }}/presenter
           plugins: presenter@bisque-cloud
           # Added to the task @claude is given, so it is part of every reply.
@@ -112,4 +112,3 @@ jobs:
         with:
           source: pull-request
           presentation: explainer
-          visibility: unlisted # test of wiresage/mikrotik-mcp#197 only
