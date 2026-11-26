@@ -190,6 +190,10 @@ jobs:
           if [ -n "${{ matrix.macosx_deployment_target || '' }}" ]; then
             export MACOSX_DEPLOYMENT_TARGET="${{ matrix.macosx_deployment_target }}"
           fi
+          # ort-sys copies DirectML DLLs here before Cargo creates examples/.
+          if [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ]; then
+            mkdir -p "target/${{ matrix.target }}/release/"{examples,deps}
+          fi
           cargo build --release --target ${{ matrix.target }} ${{ matrix.cargo_flags }}
 
       # The pronunciation fixture tests refuse to run without real language
