@@ -31,6 +31,7 @@
 mod check;
 mod pronounce;
 mod align;
+mod realign;
 mod audio;
 mod device;
 mod engine;
@@ -151,6 +152,23 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Measure an existing recording against its original script. Writes JSON
+    /// to stdout; never synthesizes, trims, retimes or rewrites the audio.
+    Align {
+        /// Existing MP3 or WAV. MP3 decoding requires ffmpeg on PATH.
+        #[arg(long)]
+        audio: PathBuf,
+        /// Original script, including pronunciation overrides; `-` reads stdin.
+        #[arg(long)]
+        text: String,
+        /// Installed forced aligner. No approximate fallback.
+        #[arg(long)]
+        aligner: String,
+        #[arg(long, default_value = "auto")]
+        device: device::Device,
+        #[arg(long)]
+        threads: Option<usize>,
+    },
     /// List every engine with its size, voices and languages.
     ///
     /// This is what an onboarding flow renders so the user can choose. Use
@@ -457,6 +475,18 @@ fn run() -> Result<()> {
     let models = fetch::Models::from_env()?;
 
     match &cli.command {
+        Some(Command::Align {
+            audio,
+            text,
+            aligner,
+            device,
+            threads,
+        }) => {
+            let text = text_arg(text)?;
+            let result = realign::run(&models, audio, &text, aligner, *device, *threads)?;
+            println!("{}", serde_json::to_string(&result)?);
+            return Ok(());
+        }
         Some(Command::Engines { json }) => return list_engines(&models, *json),
         Some(Command::Aligners { json }) => return list_aligners(&models, *json),
         Some(Command::Install { ids }) => {

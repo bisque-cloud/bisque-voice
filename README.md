@@ -28,7 +28,8 @@ bisque-voice --text "Revenue grew 3.5x to \$4.2M in Q3." \
   dollars" and still lands on the one word you typed.
 - **Your own voice from a 10–30 second clip.** Record yourself once, and
   every narration after that speaks in your voice.
-- **One program, nothing else to install.** No Python and no ffmpeg.
+- **Narration needs no Python or ffmpeg.** Repairing timings on an existing
+  MP3 uses ffmpeg to decode it; WAV decoding is built in.
 - **You can check what you're running.** Every release is built
   from this repository on GitHub's runners, with a signed record of the commit
   it came from, and the macOS builds are notarized by Apple.
@@ -60,6 +61,29 @@ bisque-voice --text "Revenue grew 3.5x to \$4.2M in Q3." \
 
 Each model downloads when you install it, and its checksum is built into the
 program, so it installs only the file it expects.
+
+## Align an existing recording
+
+```sh
+bisque-voice align --audio narration.mp3 --text - --aligner qwen3-q4 < script.txt
+```
+
+This prints word timings and the original file's hash and size as JSON. It
+does not synthesize, trim, change speed, encode, or write the recording. Times
+refer to the decoded file's playback clock, including its leading silence.
+MP3 decoding needs ffmpeg on PATH; WAV decoding does not.
+
+Use the original script, including `[Qwen3](kwen three)` pronunciation
+overrides. The aligner hears the spoken form and returns the display words in
+source order, so cue indices stay valid. For a multiword display whose spoken
+form has a different word count, use one override per display word; ambiguous
+mappings are rejected. `exact: true` means source-token mapping, not a claim
+that every acoustic boundary is correct. Silent recordings, collapsed or
+low-confidence alignments, and invalid spans fail without emitting metadata.
+
+Choose an installed aligner from `bisque-voice aligners`. Intel macOS builds
+cannot run the bundled ONNX aligners; they refuse this command rather than
+substitute estimated timings. Existing Intel narration remains approximate.
 
 ## Get started
 
