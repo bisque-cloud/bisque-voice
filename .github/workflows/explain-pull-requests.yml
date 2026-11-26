@@ -27,7 +27,7 @@ jobs:
       github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
-      - uses: bisque-cloud/presenter@7159a1bda766df3900465cdbcc532fc5a8de495f # v1.9.4
+      - uses: bisque-cloud/presenter@2aa9fcd8fd12b074f4c6d25eb2c0f9dd7ef620d1 # validator repair
         with:
           source: pull-request
           when: judged
